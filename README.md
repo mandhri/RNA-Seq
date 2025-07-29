@@ -4,7 +4,7 @@
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Overview](#overview)  
 2. [Project Structure](#project-structure)  
@@ -20,7 +20,7 @@
 
 ---
 
-## 🔍 Overview
+## Overview
 
 This repository demonstrates a simple end-to-end bulk RNA-Seq workflow:
 
@@ -33,7 +33,7 @@ This repository demonstrates a simple end-to-end bulk RNA-Seq workflow:
 
 ---
 
-## 🗂 Project Structure
+## Project Structure
 
 .
 ├── download_sra.sh             # ENA/SRA bulk‐download helper
@@ -46,7 +46,7 @@ This repository demonstrates a simple end-to-end bulk RNA-Seq workflow:
 └── SraRunTable.csv             # Sample metadata / phenotype table
 
 ---
-## ⚙️ Prerequisites
+## Prerequisites
 Git (v2.20+), Bash shell
 FastQC & MultiQC
 Skewer (for adapter trimming)
@@ -54,7 +54,7 @@ Kallisto (v0.46+)
 
 
 ---
-## ⬇️ Data Download
+## Data Download
 Edit ena_ftp_links.txt with your SRR URLs.
 
 Run:
@@ -65,7 +65,7 @@ This will fetch all .fastq.gz into fastq_files/.
 
 
 ---
-## ✅ Quality Control & Adapter Extraction
+## Quality Control & Adapter Extraction
 
 
 # Raw QC
@@ -77,7 +77,7 @@ multiqc -o qc_raw/ qc_raw/
 
 
 ---
-## ✂️ Read Trimming
+## Read Trimming
 
 ./fastq_trimmer.sh \
   --in-dir fastq_files/ \
@@ -88,7 +88,7 @@ Then re-run FastQC/MultiQC on fastq_trimmed/ if you like.
 
 
 ---
-## 🎯 Quantification (Kallisto)
+## Quantification (Kallisto)
 
 Single-end:
 bash
@@ -107,7 +107,7 @@ bash
 
 
 ---
-## 📊 Generate Manifests & Reports
+## Generate Manifests & Reports
 Finally, summarise everything:
 
 bash
