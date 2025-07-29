@@ -67,7 +67,7 @@ This will fetch all .fastq.gz into fastq_files/.
 ---
 ## ✅ Quality Control & Adapter Extraction
 
-bash
+
 # Raw QC
 fastqc -o qc_raw/ fastq_files/*.fastq.gz
 multiqc -o qc_raw/ qc_raw/
@@ -75,7 +75,9 @@ multiqc -o qc_raw/ qc_raw/
 # Extract adapter content
 ./extract_adapters.sh qc_raw/*_fastqc.zip qc_raw/
 
-✂️ Read Trimming
+
+---
+## ✂️ Read Trimming
 
 ./fastq_trimmer.sh \
   --in-dir fastq_files/ \
