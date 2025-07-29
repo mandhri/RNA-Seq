@@ -35,7 +35,6 @@ This repository demonstrates a simple end-to-end bulk RNA-Seq workflow:
 
 ## 🗂 Project Structure
 
-```text
 .
 ├── download_sra.sh             # ENA/SRA bulk‐download helper
 ├── ena_ftp_links.txt           # List of SRR FTP URLs
@@ -46,13 +45,16 @@ This repository demonstrates a simple end-to-end bulk RNA-Seq workflow:
 ├── generate_manifests.sh       # Summarise outputs and build sample table
 └── SraRunTable.csv             # Sample metadata / phenotype table
 
-⚙️ Prerequisites
+---
+## ⚙️ Prerequisites
 Git (v2.20+), Bash shell
 FastQC & MultiQC
 Skewer (for adapter trimming)
 Kallisto (v0.46+)
 
-⬇️ Data Download
+
+---
+## ⬇️ Data Download
 Edit ena_ftp_links.txt with your SRR URLs.
 
 Run:
@@ -61,8 +63,9 @@ bash
 
 This will fetch all .fastq.gz into fastq_files/.
 
-✅ Quality Control & Adapter Extraction
 
+---
+## ✅ Quality Control & Adapter Extraction
 
 bash
 # Raw QC
@@ -81,7 +84,9 @@ multiqc -o qc_raw/ qc_raw/
 
 Then re-run FastQC/MultiQC on fastq_trimmed/ if you like.
 
-🎯 Quantification (Kallisto)
+
+---
+## 🎯 Quantification (Kallisto)
 
 Single-end:
 bash
@@ -98,7 +103,9 @@ bash
   --index ref/transcriptome.idx \
   --out-dir kallisto_pe_results/
 
-📊 Generate Manifests & Reports
+
+---
+## 📊 Generate Manifests & Reports
 Finally, summarise everything:
 
 bash
