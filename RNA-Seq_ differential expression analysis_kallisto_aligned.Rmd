@@ -111,8 +111,15 @@ head(samples)
 
 metadata <- samples %>%
   column_to_rownames("sample") %>%
-  select(condition)
-head(metadata)
+  select(condition) %>%
+  tibble::rownames_to_column("run") %>%
+
+# extract the last two digits of the run (e.g. "02") and build the new label
+  mutate(
+    label    = paste0(condition, "_SRR_")
+  ) %>%
+  tibble::column_to_rownames("run")
+metadata$label
 
 dds <- DESeqDataSetFromTximport(txi,
                                 colData = metadata,
@@ -122,20 +129,77 @@ str(dds)
 ```
 
 
-# Filtering for low count and normalisation
+# Filtering for low count and normalisation of the counts
 
 ## Now that we have our DESeq2 object created with the raw counts and metadata stored inside, we can start the DESeq2 workflow. The first step in the workflow is to normalise the raw counts to assess sample-level quality control metrics.
 
 ## But what does it mean to normalise the raw counts? The raw counts represent the number of reads aligning to each gene and should be proportional to the expression of the RNA in the sample; however, there are factors other than RNA expression that can influence the number of reads aligning to each gene. We can adjust the count data to remove the influence of these factors on the overall counts using normalisation methods. The main factors often considered during normalisation of count data are library depth, gene length, and RNA composition.
 
-## Differences in library size between samples can lead to many more reads being aligned to genes in one sample versus another sample. Another normalisation factor often adjusted for is gene length. A longer gene generates a longer transcript, which generates more fragments for sequencing. Therefore, a longer gene will often have more counts than a shorter gene with the same level of expression. If the DE analysis compares expression levels of the same genes between conditions, we do not need to normalise for gene length. However, if you were to compare the expression levels of different genes, you would need to account for lengths of the genes. For example In differential expression (DE) analysis:When comparing the expression of Gene A between Condition 1 and Condition 2, Gene A maintains the same physical length in both conditions. Since longer genes naturally attract more sequencing reads simply due to their increased target size, this length bias affects Gene A equally in both conditions. Therefore, when the ratio between conditions is calculated, the length bias cancels out mathematically, making gene length normalisation unnecessary.When comparing different genes: If comparing Gene A (1,000 base pairs) to Gene B (5,000 base pairs) within the same sample, Gene B will typically receive approximately five times more reads than Gene A, even if both genes are expressed at identical levels. This occurs because Gene B presents a larger target for random fragmentation and sequencing. Without length normalisation, Gene B would appear falsely more highly expressed.
+## Differences in *library size* between samples can lead to many more reads being aligned to genes in one sample versus another sample. Another normalisation factor often adjusted for is *gene length*. A longer gene generates a longer transcript, which generates more fragments for sequencing. Therefore, a longer gene will often have more counts than a shorter gene with the same level of expression. If the DE analysis compares expression levels of the same genes between conditions, we do not need to normalise for gene length. However, if you were to compare the expression levels of different genes, you would need to account for lengths of the genes. For example In differential expression (DE) analysis:When comparing the expression of Gene A between Condition 1 and Condition 2, Gene A maintains the same physical length in both conditions. Since longer genes naturally attract more sequencing reads simply due to their increased target size, this length bias affects Gene A equally in both conditions. Therefore, when the ratio between conditions is calculated, the length bias cancels out mathematically, making gene length normalisation unnecessary.When comparing different genes: If comparing Gene A (1,000 base pairs) to Gene B (5,000 base pairs) within the same sample, Gene B will typically receive approximately five times more reads than Gene A, even if both genes are expressed at identical levels. This occurs because Gene B presents a larger target for random fragmentation and sequencing. Without length normalisation, Gene B would appear falsely more highly expressed.
 
-## When adjusting for library size, the composition of the library is also important. A few highly differentially expressed genes can skew many normalisation methods that are not resistant to these outliers. If we just divided our counts by the total number of reads, normalisation for the majority of genes would be skewed by the highly expressed DE gene. For this reason, when performing a DE analysis, we need to use a method that is resistant to these outlier genes.
+## When adjusting for library size, the *composition of the library* is also important. A few highly differentially expressed genes can skew many normalisation methods that are not resistant to these outliers. If we just divided our counts by the total number of reads, normalisation for the majority of genes would be skewed by the highly expressed DE gene. For this reason, when performing a DE analysis, we need to use a method that is resistant to these outlier genes.
+
+
+## DESeq2’s default *median-of-ratios* approach calculates a per-sample **size factor** that brings all libraries to a common scale.  
+It corrects for library depth and remains robust even when many genes are truly differentially expressed..
+
+## However, if you align your reads with Kallisto or Salmon and import them into R using tximport (with countsFromAbundance = "lengthScaledTPM" or "scaledTPM"), the resulting gene counts are already normalised for library depth (and, if requested, transcript length). In that case you can skip the explicit dds_1 <- estimateSizeFactors(dds) step and go straight to dds <- DESeq(dds). By contrast, when you use STAR (or any other method that produces raw integer counts), those counts have not been adjusted for library size, so you must run dds_1 <- estimateSizeFactors(dds) (or simply call DESeq(dds), which performs size‐factor estimation internally) before proceeding with differential expression analysis.
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
 keep <- rowSums(counts(dds)) >= 10
 dds  <- dds[keep, ]
+
+# size factors normalisation for the raw counts
+normalizationFactors(dds)  # This will return NULL
+
+#Seeing normalisationFactors(dds) return NULL simply means you have raw counts, you either need to call estimateSizeFactors(dds) (or DESeq(dds)), or if you prefer the tximport-driven approach, re-import with a countsFromAbundance= option so that DESeq2 can auto-generate those normalisation factors.
+
+dds_1 <- estimateSizeFactors(dds)
+head(normalizationFactors(dds_1))
+
+#Extracts normalised count values from DESeq2 object after applying either size factors 
+norm_counts<-counts(dds_1,normalized=TRUE)
+head(norm_counts)
+
+```
+
+
+# Unsupervised clustering analyses
+
+## With our counts normalised for library size, we can now compare the counts between the different samples. We can explore how similar the samples are to each other with regards to gene expression to assess the quality of our experiment. To do this we use visualisation methods for unsupervised clustering analyses, including hierarchical clustering heatmaps and principal component analysis or PCA. We perform these QC methods to get an idea of how similar the biological replicates are to each other and to identify outlier samples and major sources of variation present in the dataset.
+
+## When using these visualisation methods, we should first log transform the normalised counts to improve the visualisation of the clustering. For RNA-Seq data, DESeq2 uses a variance stabilising transformation (VST), which is a logarithmic transformation that moderates the variance across the mean. We can transform the normalised counts by using the DESeq2 vst() function on the DESeq2 object. The blind=TRUE argument specifies that the transformation should be blind to the sample information given in the design formula; this argument should be specified when performing quality assessment.
+
+## Hierarchical clustering with heatmaps is used to assess the similarity in gene expression between the different samples in a dataset. This technique is used to explore how similar replicates are to each other and whether the samples belonging to different sample groups cluster separately. The heatmap is created by using the gene expression correlation values for all pairwise combinations of samples in the dataset, with the value 1 being perfect correlation. Since the majority of genes should not be differentially expressed, samples should generally have high correlations with each other. Samples with correlation values below 0-point-8 may require further investigation to determine whether these samples are outliers or have contamination.We expect the biological replicates to cluster together and sample conditions to cluster apart.
+
+## 
+
+```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
+
+vsd_dds1<-vst(dds_1,blind = TRUE)
+
+# Creating hierarchical heatmap
+
+## extract the vsd matrix form the object
+vsd_mat<-assay(vsd_dds1)
+  
+## compute pairwise correlation values
+vsd_cor<-cor(vsd_mat)
+head(vsd_cor)
+
+pheatmap(
+  vsd_cor,
+  labels_row     = metadata2$label,
+  labels_col     = metadata2$label,
+  annotation_col = metadata2["condition"],
+  annotation_row = metadata2["condition"],
+  fontsize       = 8,
+  angle_col      = 45
+)
+
+# Creating PCA plots
+
 
 dds_3 <- DESeq(dds_2)
 res_1 <- results(dds_3, contrast = c("condition","Treated","Control"))
