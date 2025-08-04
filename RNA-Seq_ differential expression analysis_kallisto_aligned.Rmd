@@ -10,6 +10,7 @@ date: "2025-04-18"
 suppressPackageStartupMessages({
   library("EnhancedVolcano")
   library("limma")
+  library("biomaRt")
   library("tximport")
   library("apeglm")
   library("eulerr")
@@ -103,6 +104,8 @@ samples <- left_join(samples, coldata, by = "sample")
 
 # Making DESeqDataSet from tximport
 
+*fitting the raw counts for each gene to the DESeq2 negative binomial model* using DESeqDataSetFromTximport. To perform these calculations and fit the negative binomial model requires only two functions. The first function creates the DESeq2 object. When we created the DESeq2 object, we provided the raw counts, metadata, and design formula. We have explored the raw counts and metadata, but what exactly was specified with the design formula? The design formula is an important part of modeling, telling DESeq2 the known major sources of variation to control for, or regress out, as well as, the condition of interest to use for differential expression testing.
+
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
 all(samples$sample == colnames(txi$counts))
@@ -131,19 +134,19 @@ str(dds)
 
 # Filtering for low count and normalisation of the counts
 
-## Now that we have our DESeq2 object created with the raw counts and metadata stored inside, we can start the DESeq2 workflow. The first step in the workflow is to normalise the raw counts to assess sample-level quality control metrics.
+Now that we have our DESeq2 object created with the raw counts and metadata stored inside, we can start the DESeq2 workflow. The first step in the workflow is to normalise the raw counts to assess sample-level quality control metrics.
 
-## But what does it mean to normalise the raw counts? The raw counts represent the number of reads aligning to each gene and should be proportional to the expression of the RNA in the sample; however, there are factors other than RNA expression that can influence the number of reads aligning to each gene. We can adjust the count data to remove the influence of these factors on the overall counts using normalisation methods. The main factors often considered during normalisation of count data are library depth, gene length, and RNA composition.
+But what does it mean to normalise the raw counts? The raw counts represent the number of reads aligning to each gene and should be proportional to the expression of the RNA in the sample; however, there are factors other than RNA expression that can influence the number of reads aligning to each gene. We can adjust the count data to remove the influence of these factors on the overall counts using normalisation methods. The main factors often considered during normalisation of count data are library depth, gene length, and RNA composition.
 
-## Differences in *library size* between samples can lead to many more reads being aligned to genes in one sample versus another sample. Another normalisation factor often adjusted for is *gene length*. A longer gene generates a longer transcript, which generates more fragments for sequencing. Therefore, a longer gene will often have more counts than a shorter gene with the same level of expression. If the DE analysis compares expression levels of the same genes between conditions, we do not need to normalise for gene length. However, if you were to compare the expression levels of different genes, you would need to account for lengths of the genes. For example In differential expression (DE) analysis:When comparing the expression of Gene A between Condition 1 and Condition 2, Gene A maintains the same physical length in both conditions. Since longer genes naturally attract more sequencing reads simply due to their increased target size, this length bias affects Gene A equally in both conditions. Therefore, when the ratio between conditions is calculated, the length bias cancels out mathematically, making gene length normalisation unnecessary.When comparing different genes: If comparing Gene A (1,000 base pairs) to Gene B (5,000 base pairs) within the same sample, Gene B will typically receive approximately five times more reads than Gene A, even if both genes are expressed at identical levels. This occurs because Gene B presents a larger target for random fragmentation and sequencing. Without length normalisation, Gene B would appear falsely more highly expressed.
+Differences in *library size* between samples can lead to many more reads being aligned to genes in one sample versus another sample. Another normalisation factor often adjusted for is *gene length*. A longer gene generates a longer transcript, which generates more fragments for sequencing. Therefore, a longer gene will often have more counts than a shorter gene with the same level of expression. If the DE analysis compares expression levels of the same genes between conditions, we do not need to normalise for gene length. However, if you were to compare the expression levels of different genes, you would need to account for lengths of the genes. For example In differential expression (DE) analysis:When comparing the expression of Gene A between Condition 1 and Condition 2, Gene A maintains the same physical length in both conditions. Since longer genes naturally attract more sequencing reads simply due to their increased target size, this length bias affects Gene A equally in both conditions. Therefore, when the ratio between conditions is calculated, the length bias cancels out mathematically, making gene length normalisation unnecessary.When comparing different genes: If comparing Gene A (1,000 base pairs) to Gene B (5,000 base pairs) within the same sample, Gene B will typically receive approximately five times more reads than Gene A, even if both genes are expressed at identical levels. This occurs because Gene B presents a larger target for random fragmentation and sequencing. Without length normalisation, Gene B would appear falsely more highly expressed.
 
-## When adjusting for library size, the *composition of the library* is also important. A few highly differentially expressed genes can skew many normalisation methods that are not resistant to these outliers. If we just divided our counts by the total number of reads, normalisation for the majority of genes would be skewed by the highly expressed DE gene. For this reason, when performing a DE analysis, we need to use a method that is resistant to these outlier genes.
+When adjusting for library size, the *composition of the library* is also important. A few highly differentially expressed genes can skew many normalisation methods that are not resistant to these outliers. If we just divided our counts by the total number of reads, normalisation for the majority of genes would be skewed by the highly expressed DE gene. For this reason, when performing a DE analysis, we need to use a method that is resistant to these outlier genes.
 
 
-## DESeq2’s default *median-of-ratios* approach calculates a per-sample **size factor** that brings all libraries to a common scale.  
+DESeq2’s default *median-of-ratios* approach calculates a per-sample **size factor** that brings all libraries to a common scale.  
 It corrects for library depth and remains robust even when many genes are truly differentially expressed..
 
-## However, if you align your reads with Kallisto or Salmon and import them into R using tximport (with countsFromAbundance = "lengthScaledTPM" or "scaledTPM"), the resulting gene counts are already normalised for library depth (and, if requested, transcript length). In that case you can skip the explicit dds_1 <- estimateSizeFactors(dds) step and go straight to dds <- DESeq(dds). By contrast, when you use STAR (or any other method that produces raw integer counts), those counts have not been adjusted for library size, so you must run dds_1 <- estimateSizeFactors(dds) (or simply call DESeq(dds), which performs size‐factor estimation internally) before proceeding with differential expression analysis.
+However, if you align your reads with Kallisto or Salmon and import them into R using *tximport (with countsFromAbundance = "lengthScaledTPM" or "scaledTPM")*, the resulting gene counts are already normalised for library depth (and, if requested, transcript length). In that case you can skip the explicit *dds_1 <- estimateSizeFactors(dds)* step and go straight to *dds <- DESeq(dds)*. By contrast, when you use STAR (or any other method that produces raw integer counts), those counts have not been adjusted for library size, so you must run *dds_1 <- estimateSizeFactors(dds)* (or simply call *DESeq(dds)*, which performs *size‐factor estimation internally*) before proceeding with differential expression analysis.
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
@@ -162,24 +165,25 @@ head(normalizationFactors(dds_1))
 norm_counts<-counts(dds_1,normalized=TRUE)
 head(norm_counts)
 
+
 ```
 
 
 # Unsupervised clustering analyses
 
-## With our counts normalised for library size, we can now compare the counts between the different samples. We can explore how similar the samples are to each other with regards to gene expression to assess the quality of our experiment. To do this we use visualisation methods for unsupervised clustering analyses, including hierarchical clustering heatmaps and principal component analysis or PCA. We perform these QC methods to get an idea of how similar the biological replicates are to each other and to identify outlier samples and major sources of variation present in the dataset.
+With our counts normalised for library size, we can now compare the counts between the different samples. We can explore how similar the samples are to each other with regards to gene expression to assess the quality of our experiment. To do this we use visualisation methods for unsupervised clustering analyses, including *hierarchical clustering heatmaps* and principal component analysis or *PCA*. We perform these QC methods to get an idea of how similar the biological replicates are to each other and to identify outlier samples and major sources of variation present in the dataset.
 
-## When using these visualisation methods, we should first log transform the normalised counts to improve the visualisation of the clustering. For RNA-Seq data, DESeq2 uses a variance stabilising transformation (VST), which is a logarithmic transformation that moderates the variance across the mean. We can transform the normalised counts by using the DESeq2 vst() function on the DESeq2 object. The blind=TRUE argument specifies that the transformation should be blind to the sample information given in the design formula; this argument should be specified when performing quality assessment.
+When using these visualisation methods, we should first *log transform the normalised counts* to improve the visualisation of the clustering. For RNA-Seq data, DESeq2 uses a *variance stabilising transformation (VST)*, which is a *logarithmic transformation that moderates the variance across the mean*. We can transform the normalised counts by using the *DESeq2 vst()* function on the DESeq2 object. The blind=TRUE argument specifies that the transformation should be blind to the sample information given in the design formula; this argument should be specified when performing quality assessment.
 
-## Hierarchical clustering with heatmaps is used to assess the similarity in gene expression between the different samples in a dataset. This technique is used to explore how similar replicates are to each other and whether the samples belonging to different sample groups cluster separately. The heatmap is created by using the gene expression correlation values for all pairwise combinations of samples in the dataset, with the value 1 being perfect correlation. Since the majority of genes should not be differentially expressed, samples should generally have high correlations with each other. Samples with correlation values below 0-point-8 may require further investigation to determine whether these samples are outliers or have contamination.We expect the biological replicates to cluster together and sample conditions to cluster apart.
+*Hierarchical clustering with heatmaps* is used to assess the similarity in gene expression between the different samples in a dataset. This technique is used to explore how similar replicates are to each other and whether the samples belonging to different sample groups cluster separately. The heatmap is created by using the gene expression correlation values for all pairwise combinations of samples in the dataset, with the value 1 being perfect correlation. Since the majority of genes should not be differentially expressed, samples should generally have high correlations with each other. Samples with correlation values below 0-point-8 may require further investigation to determine whether these samples are outliers or have contamination.We expect the biological replicates to cluster together and sample conditions to cluster apart.
 
-## 
+*PCA* is a technique used to emphasise the variation present in a dataset. PCA finds the principal components of a dataset, with the first principal component, or PC1, representing the greatest amount of variance in the data.This is a good method to explore the quality of the data as we hope to see replicates cluster together and conditions to separate on PC1. Sample outliers and major sources of variation can also be identified with this method.
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
 vsd_dds1<-vst(dds_1,blind = TRUE)
 
-# Creating hierarchical heatmap
+# Creating hierarchical heat map
 
 ## extract the vsd matrix form the object
 vsd_mat<-assay(vsd_dds1)
@@ -198,37 +202,67 @@ pheatmap(
   angle_col      = 45
 )
 
+## Result interpretation for hierarchical heat map: Clear separation by condition, The off-diagonal regions (Controls vs. Treated) are paler (≈0.92–0.94), indicating that Treatment is the main driver of expression differences, Every Control sits in the Control cluster and every Treated sample in the Treated cluster. None of the runs breaks away into the “wrong” group or shows uncharacteristically low correlation with its peers.
+
 # Creating PCA plots
+plotPCA(vsd_dd1,intgroup="condition")
 
-
-dds_3 <- DESeq(dds_2)
-res_1 <- results(dds_3, contrast = c("condition","Treated","Control"))
-summary(res_1)
-sum(res_1$padj < 0.05, na.rm=TRUE)
-dds_3 <- estimateSizeFactors(dds_3)
-dds_3 <- estimateDispersions(dds_3)
-plotDispEsts(dds_3)
-dds_3 <- nbinomWaldTest(dds_3)
-
-
+## Result interpretation for PCA: Seeing PC1 explain 79% of the variance is actually fantastic. It means that almost four-fifths of all the differences between THE samples are captured on that first axis—here, clearly separating Control from Treated. In most RNA-Seq PCAs you will often see PC1 account for 30–50% of the variance, so 79% tells you your treatment is by far the dominant signal in the data. PC2 at ~5% then simply picks up minor leftover effects (batch, library prep, subtle biology), but main grouping is driven almost entirely by condition, which is exactly what you want to see in a clean experiment.
 
 ```
-#Apply LFC shrinkage (for ranking)
+
+
+#  DE analysis
+
+Now that we have explored the quality of our samples, removed any outlier samples, and assessed the major sources of variation present, we can evaluate the *differential expression analysis with DESeq2*. Remember, by performing the differential expression analysis with DESeq2, we are trying to identify which genes have significant differences in expression between the treated and control sample groups.
+
+The differential expression analysis with DESeq2 consists of roughly three steps:*fitting the raw counts for each gene to the DESeq2 negative binomial model* and *testing for differential expression*, *shrinking the log2 fold changes*, and *extracting and visualising the results*.
+
+##  fitting the raw counts to the DESeq2 model
+
+The first function creates the DESeq2 object, which is the same function we used previously during count normalisation. We do not need to re-create the object unless we removed samples or found additional sources of variation during QC using PCA and the correlation heatmap. When we created the DESeq2 object, we provided the raw counts, metadata, and design formula. We have explored the raw counts and metadata, but what exactly was specified with the design formula? The design formula is an important part of modelling, telling DESeq2 the known major sources of variation to control for, or regress out, as well as, the condition of interest to use for differential expression testing.
+
+For example, in your metadata, strain, sex, and treatment are major sources of variation in the data as determined by the PCA and heatmap, then all of these factors should be included in the design formula. If condition of interest is treatment, then it would come last in the formula with the other factors preceding it in any order. Therefore, the design formula would be: ~strain + sex + treatment. The ~ tells DESeq2 to model the counts using the following formula, so it should always proceed other factors (strain, sex). DESeq2 also allows for complex designs. For example, using the same metadata, if we wanted to know the effect of sex on the effect of treatment, we could use an interaction term. In this case, we could regress out the variation due to strain, sex and treatment and test for genes that significantly differ in their treatment effect due to sex using the interaction term, sex:treatment, as the last term in the formula (~strain + sex + treatment+sex:treatment).
+
+Once you have the DESeq2 object with the raw counts, metadata, and the appropriate design formula, you can perform model fitting with the function DESeq(). As it runs it will output the completed steps as it fills in the different slots in the DESeq2 object. The final DESeq2 object will contain all of the information needed for performing the differential expression testing between specific sample groups.
+
+For RNA-Seq data, the variance is generally expected to increase with the gene's mean expression. To observe this relationship, we can calculate the means and variances for every gene of the normal samples using the apply() function.A measure of the variance for a given mean is described by a metric called dispersion in the DESeq2 model. The DESeq2 model uses dispersion to assess the variability in expression when modeling the counts.
+
+
+## testing for differential expression
+To explore our results a bit, the MA plot can be helpful. The MA plot shows the mean of the normalised counts versus the log2 fold changes for all genes tested. We can use the DESeq2 function plotMA() to create the plot and the genes that are significantly DE are coloured blue Note the large log2 fold-changes, particularly for genes with lower mean count values. These fold changes are unlikely to be as accurate for genes that have little information associated with them, such as genes with low numbers of counts or high dispersion values.
+
+## shrinking the log2 fold changes
+To improve the estimated fold changes we can use log2 fold-change shrinkage. For genes with low amounts of information available, shrinkage uses information from all genes to generate more likely, lower, log2 fold change estimates, similar to what we did with dispersions. DESeq2 has the lfcShrink() function to generate the shrunken log2 foldchanges. We need to specify the DESeq2 object, the contrast, and our results object. We can then create the MA plot again.
 
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
-resLFC <- lfcShrink(dds_3,
-                    coef = "condition_Treated_vs_Control",
-                    type = "apeglm")
-vsd <- vst(dds_3, blind = FALSE)
-plotPCA(vsd, intgroup="condition") + ggtitle("PCA: Treated vs Control")
+# fitting the raw counts to the DESeq2 model
 
-dist_mat <- dist(t(assay(vsd)))
-pheatmap(as.matrix(dist_mat),
-         clustering_distance_rows = dist_mat,
-         clustering_distance_cols = dist_mat,
-         main = "Sample distances")
+dds_2<- DESeq(dds_1)
+dds_2 <- estimateDispersions(dds_2)
+plotDispEsts(dds_2)
+
+# testing for differential expression
+
+res<- results(dds_2, contrast = c("condition","Control","Treated"), alpha = 0.05)
+
+## baseMean: The average of the normalised counts for that gene, across all samples (both Control and Treated).
+##log2FoldChange: A positive value means the gene is higher in Control than in Treated.A negative value means it’s higher in Treated than in Control. For example, ENSMUSG00000000028 has log2FC = –1.107, so its expression in Control is about 2^(–1.107) = 0.47×. This tells you the expression in Control is only 47% of the expression in Treated.and if you flip it, you get the expression of the treated for that gene. Hence, 1/0.47=2.15 at 0.05 significance. Alpha represent significance.
+
+plotMA(res)
+
+#Apply LFC shrinkage (for ranking)
+resultsNames(dds_2)
+
+# shrink Treated vs Control
+resLFC <- lfcShrink(dds_2,
+                    coef="condition_Treated_vs_Control",
+                    type="apeglm")
+# now invert to get Control vs Treated
+resLFC$log2FoldChange <- -resLFC$log2FoldChange
+
 
 EnhancedVolcano(resLFC,
                 lab = rownames(resLFC),
@@ -236,118 +270,31 @@ EnhancedVolcano(resLFC,
                 y = 'padj',
                 title = 'Treated vs Control')
 
+
+plotMA(resLFC)
+
+```
+
+```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
+
+#To get descriptions for the columns in the results table, we can use the mcols() function
+mcols(resLFC)
+summary(resLFC)
+head(resLFC)
+#
+
+res_all<-data.frame(resLFC) %>%
+  rownames_to_column(var = "ensgene")%>%
+left_join(x=res_all, y= grcm38[, c("ensgene","symbol","descripotion")],
+          by="ensgene")
+
+
 ```
 
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
-library(ggplot2)
-library(dplyr)
-library(gridExtra)
-library(RColorBrewer)
 
-set.seed(123)
-
-# Simulate RNA-seq data with batch effect and biological signal
-n_genes <- 1000
-n_samples <- 20
-
-# Sample metadata
-sample_info <- data.frame(
-  sample_id = paste0("Sample_", 1:n_samples),
-  treatment = rep(c("Control", "Treated"), each = 10),
-  batch = rep(c("Batch_1", "Batch_2", "Batch_1", "Batch_2"), each = 5),
-  stringsAsFactors = FALSE
-)
-
-# Generate base expression matrix
-base_expression <- matrix(rnorm(n_genes * n_samples, mean = 8, sd = 2), 
-                         nrow = n_genes, ncol = n_samples)
-
-# Add strong batch effect (affects many genes with moderate effect size)
-batch_effect_genes <- 1:800  # 80% of genes affected by batch
-batch_multiplier <- ifelse(sample_info$batch == "Batch_1", 1.5, 0.7)
-for(i in batch_effect_genes) {
-  base_expression[i, ] <- base_expression[i, ] * batch_multiplier
-}
-
-# Add biological signal (affects fewer genes but with larger effect size)
-treatment_effect_genes <- 1:200  # 20% of genes affected by treatment
-treatment_multiplier <- ifelse(sample_info$treatment == "Treated", 2.2, 1.0)
-for(i in treatment_effect_genes) {
-  base_expression[i, ] <- base_expression[i, ] * treatment_multiplier
-}
-
-# Add noise
-expression_matrix <- base_expression + matrix(rnorm(n_genes * n_samples, sd = 0.3), 
-                                            nrow = n_genes, ncol = n_samples)
-
-rownames(expression_matrix) <- paste0("Gene_", 1:n_genes)
-colnames(expression_matrix) <- sample_info$sample_id
-
-# PCA Analysis (using all genes)
-pca_result <- prcomp(t(expression_matrix), scale. = TRUE)
-pca_variance <- round(summary(pca_result)$importance[2,] * 100, 1)
-
-pca_data <- data.frame(
-  PC1 = pca_result$x[,1],
-  PC2 = pca_result$x[,2],
-  treatment = sample_info$treatment,
-  batch = sample_info$batch,
-  sample_id = sample_info$sample_id
-)
-
-# MDS Analysis (using top variable genes - simulating focus on DE genes)
-# Calculate gene variance and select top variable genes
-gene_var <- apply(expression_matrix, 1, var)
-top_genes <- names(sort(gene_var, decreasing = TRUE))[1:200]  # Top 200 variable genes
-mds_matrix <- expression_matrix[top_genes, ]
-
-# Calculate distance matrix and perform MDS
-dist_matrix <- dist(t(mds_matrix))
-mds_result <- cmdscale(dist_matrix, k = 2)
-
-mds_data <- data.frame(
-  MDS1 = mds_result[,1],
-  MDS2 = mds_result[,2],
-  treatment = sample_info$treatment,
-  batch = sample_info$batch,
-  sample_id = sample_info$sample_id
-)
-
-# Create PCA plot
-pca_plot <- ggplot(pca_data, aes(x = PC1, y = PC2)) +
-  geom_point(aes(color = treatment, shape = batch), size = 4, alpha = 0.8) +
-  scale_color_manual(values = c("Control" = "#E31A1C", "Treated" = "#1F78B4")) +
-  scale_shape_manual(values = c("Batch_1" = 16, "Batch_2" = 17)) +
-  labs(title = "PCA Plot",
-       subtitle = "Shows batch effect dominating PC1",
-       x = paste0("PC1 (", pca_variance[1], "% variance)"),
-       y = paste0("PC2 (", pca_variance[2], "% variance)")) +
-  theme_minimal() +
-  theme(legend.position = "bottom",
-        plot.title = element_text(size = 14, face = "bold")) +
-  guides(color = guide_legend(title = "Treatment"),
-         shape = guide_legend(title = "Batch"))
-
-# Create MDS plot
-mds_plot <- ggplot(mds_data, aes(x = MDS1, y = MDS2)) +
-  geom_point(aes(color = treatment, shape = batch), size = 4, alpha = 0.8) +
-  scale_color_manual(values = c("Control" = "#E31A1C", "Treated" = "#1F78B4")) +
-  scale_shape_manual(values = c("Batch_1" = 16, "Batch_2" = 17)) +
-  labs(title = "MDS Plot",
-       subtitle = "Shows biological signal more clearly",
-       x = "MDS Dimension 1",
-       y = "MDS Dimension 2") +
-  theme_minimal() +
-  theme(legend.position = "bottom",
-        plot.title = element_text(size = 14, face = "bold")) +
-  guides(color = guide_legend(title = "Treatment"),
-         shape = guide_legend(title = "Batch"))
-
-# Display plots side by side
-grid.arrange(pca_plot, mds_plot, ncol = 2, 
-             top = "PCA vs MDS: Same Dataset, Different Insights")
 
 
 
