@@ -202,6 +202,12 @@ pheatmap(
   fontsize       = 8,
   angle_col      = 45
 )
+# or the following
+
+vsd_dds1 %>% 
+        assay() %>%
+        cor() %>%
+        pheatmap(annotation = dplyr::select(metadata2, "condition"))
 
 ## Result interpretation for hierarchical heat map: Clear separation by condition, The off-diagonal regions (Controls vs. Treated) are paler (≈0.92–0.94), indicating that Treatment is the main driver of expression differences, Every Control sits in the Control cluster and every Treated sample in the Treated cluster. None of the runs breaks away into the “wrong” group or shows uncharacteristically low correlation with its peers.
 
@@ -308,11 +314,68 @@ nrow(dup_counts)
 
 ## You’re seeing 21 440 rows in res_all even though you started with 21 339 genes in resLFC because your annotation table (grcm38 or mmusculus) has multiple entries for some Ensembl IDs. A left_join() will emit one output row per match, so any gene that appears twice (or more) in the annotation gets duplicated in your final table.
 
+#Visualising results - Expression plot
+
+## volcano plots to show the fold changes relative to the adjusted p-values for all genes.
+
+# Obtain logical vector regarding whether padj values are less than 0.05
+
+res_all <- as.data.frame(resLFC) %>%
+  rownames_to_column("ensgene") %>%
+  left_join(
+    grcm38 %>% dplyr::select(ensgene, symbol, description),
+    by = "ensgene"
+  ) %>%
+  mutate(threshold = padj < 0.05) 
+
+ggplot(res_all) +
+    geom_point(aes(x = log2FoldChange, y = -log10(padj),
+                   color = threshold)) +
+    xlab("log2 fold change") +
+    ylab("-log10 adjusted p-value") +
+    theme(legend.position = "none",
+          plot.title = element_text(size = rel(1.5), hjust = 0.5),
+          axis.title = element_text(size = rel(1.25)))
+
+
+## Expression plot
+ 
+top20genes <- rownames(resLFC)[head(order(resLFC$padj),20)]
+norm_df <- as.data.frame(norm_counts[top20genes, ]) %>%
+  rownames_to_column("ensgene")
+
+top20_long <- norm_df %>%
+  pivot_longer(
+    cols = -ensgene,
+    names_to = "samplename",
+    values_to = "normalized_counts"
+  ) %>%
+  left_join(
+    metadata2 %>% 
+      rownames_to_column("samplename") %>%
+      dplyr::select(samplename, condition),
+    by = "samplename"
+  )
+
+ggplot(top20_long, aes(x = ensgene, y = normalized_counts, colour = condition)) +
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) + 
+  scale_y_log10() +
+  labs(
+    x = "Gene (Ensembl ID)",
+    y = "Library-size–normalised count (log scale)",
+    title = "Top 20 Differentially Expressed Genes"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title     = element_text(hjust = 0.5)
+  )
+
 ```
 
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
-
+sessionInfo()
 
 
 
