@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
   library("EnhancedVolcano")
   library("limma")
   library("biomaRt")
+  library("annotables")
   library("tximport")
   library("apeglm")
   library("eulerr")
@@ -281,18 +282,37 @@ plotMA(resLFC)
 mcols(resLFC)
 summary(resLFC)
 head(resLFC)
-#
 
-res_all<-data.frame(resLFC) %>%
-  rownames_to_column(var = "ensgene")%>%
-left_join(x=res_all, y= grcm38[, c("ensgene","symbol","descripotion")],
-          by="ensgene")
+# 
+?annotables
 
+res_all <- as.data.frame(resLFC) %>%
+  rownames_to_column("ensgene") %>%
+  left_join(
+    grcm38 %>% dplyr::select(ensgene, symbol, description),
+    by = "ensgene"
+  )
+
+# Subset the results to only return the significant genes with p-adjusted values less than 0.05
+res_all_sig <- subset(res_all, padj <0.05)
+
+
+
+# How many times each ensgene appears in your annotation?
+dup_counts <- grcm38 %>%
+  count(ensgene) %>%
+  filter(n > 1)
+
+# How many unique IDs are duplicated?
+nrow(dup_counts)
+
+## You’re seeing 21 440 rows in res_all even though you started with 21 339 genes in resLFC because your annotation table (grcm38 or mmusculus) has multiple entries for some Ensembl IDs. A left_join() will emit one output row per match, so any gene that appears twice (or more) in the annotation gets duplicated in your final table.
 
 ```
 
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
+
 
 
 
