@@ -302,4 +302,4 @@ The final manifest includes:
 
 ---
 
-**Note**: This pipeline is designed for educational purposes. For production-scale RNA-Seq analyses, additional considerations regarding statistical analysis, batch effects, and experimental design should be incorporated.
+**Note**: For production-scale RNA-Seq analyses, additional considerations regarding statistical analysis, batch effects, and experimental design should be incorporated.
