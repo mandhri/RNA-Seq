@@ -151,7 +151,7 @@ However, if you align your reads with Kallisto or Salmon and import them into R 
 
 ```{r fig.width=11, fig.height=9, message=FALSE, warning=FALSE, echo=TRUE}
 
-keep <- rowSums(counts(dds)) >= 10
+keep <- rowSums(counts(dds) >= 10) >=2
 dds  <- dds[keep, ]
 
 # size factors normalisation for the raw counts
