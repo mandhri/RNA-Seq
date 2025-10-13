@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
-export PATH="/mnt/vol1/kallisto:$PATH"
+# ---- config ----
+export PATH="/mnt/vol1/kallisto:$PATH"   # optional if kallisto isn't already in PATH
 PROJ_DIR=/mnt/vol1/RNA-Seq
 
-#Where to build/index and store results
-REF_DIR=$PROJ_DIR/kallisto_tutorial/references
-RESULTS_DIR=$PROJ_DIR/kallisto_tutorial/results
+DATA_DIR="$PROJ_DIR/trimmed"                   # single-end trimmed FASTQs live here
+RESULTS_DIR="$PROJ_DIR/kallisto_tutorial/results"
+LOG_DIR="$RESULTS_DIR/logs"
 
-#Point here at your already-downloaded trimmed FASTQs
-DATA_DIR=$PROJ_DIR/trimmed
+INDEX_DIR="/mnt/vol1/Mouse_model_RNA_Seq/index" # shared index location
+IDX="$INDEX_DIR/mouse_transcriptome.k31.idx"     # use one consistent index path/name
 
-# ---- index lives in the Mouse_model_RNA_Seq area
-INDEX_DIR="/mnt/vol1/Mouse_model_RNA_Seq/index"
-IDX="$INDEX_DIR/mouse_transcriptome.k31.idx"
+# ---- SE quant params ------------------
 
 #THREADS=8 means “use up to 8 cores at once
 #Fewer threads= jobs run more slowly (because less parallel work), but will leave more spare CPU capacity if you are on a shared server.
@@ -27,60 +27,74 @@ THREADS=8
 FRAG_LEN=200 
 FRAG_SD=20
 
-mkdir -p $REF_DIR $RESULTS_DIR
+mkdir -p "$INDEX_DIR" "$RESULTS_DIR" "$LOG_DIR"
 
+# ---- sanity checks ----
+command -v kallisto >/dev/null 2>&1 || { echo "ERROR: kallisto not found in PATH"; exit 1; }
+[[ -d "$DATA_DIR" ]] || { echo "ERROR: DATA_DIR not found: $DATA_DIR"; exit 1; }
 
 
 #Conditional reference build
 
-if [ ! -f $REF_DIR/mouse_transcriptome.idx ]; then
-echo "Kallisto index is not available, building the index"
-cd $REF_DIR
-[ ! -f Mus_musculus.GRCm39.cdna.all.fa.gz ] && \
-
-wget https://ftp.ensembl.org/pub/release-114/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz
-
-#keeping the original .fa.gz around for safekeeping or future re‑indexing
-gunzip -c Mus_musculus.GRCm39.cdna.all.fa.gz > Mus_musculus.GRCm39.cdna.all.fa
-kallisto index -i mouse_transcriptome.idx Mus_musculus.GRCm39.cdna.all.fa
-
+# ---- build index once (Ensembl r115 mouse cDNA) ----
+if [[ ! -f "$IDX" ]]; then
+  echo "[INFO] Kallisto index not found. Building at: $IDX"
+  cd "$INDEX_DIR"
+  if [[ ! -f Mus_musculus.GRCm39.cdna.all.fa.gz ]]; then
+    wget -O Mus_musculus.GRCm39.cdna.all.fa.gz \
+      https://ftp.ensembl.org/pub/release-115/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz
+  fi
+  gunzip -c Mus_musculus.GRCm39.cdna.all.fa.gz > Mus_musculus.GRCm39.cdna.all.fa
+  kallisto index -i "$IDX" Mus_musculus.GRCm39.cdna.all.fa
+  echo "[INFO] Index built."
 else
-echo "Kalisto index is already existing.Skipping the build"
+  echo "[INFO] Kallisto index already exists: $IDX"
 fi
 
-#Sample data download and processing
-
-echo "Starting to download the relavant fastq file for processing and aligment"
-
-# Check if any files exist
-if ! ls "$DATA_DIR"/*-trimmed.fastq.gz 1> /dev/null 2>&1; then
-    echo "ERROR: No trimmed.fastq.gz files found in $DATA_DIR"
-    exit 1
+# ---- find SE files (support *-trimmed.fastq.gz and *_trimmed.fastq.gz) ----
+shopt -s nullglob
+SE_FILES=( "$DATA_DIR"/*-trimmed.fastq.gz "$DATA_DIR"/*_trimmed.fastq.gz )
+if [[ ${#SE_FILES[@]} -eq 0 ]]; then
+  echo "ERROR: No trimmed single-end FASTQs found in $DATA_DIR"
+  echo "Expect patterns: *-trimmed.fastq.gz or *_trimmed.fastq.gz"
+  exit 1
 fi
 
-TOTAL_FILES=$(ls "$DATA_DIR"/*-trimmed.fastq.gz | wc -l)
-CURRENT=0
+echo "[INFO] Found ${#SE_FILES[@]} single-end FASTQ files to quantify."
 
-echo "Found $TOTAL_FILES FASTQ files to process"
+# ---- quantify each file ----
+count=0
+for FASTQ in "${SE_FILES[@]}"; do
+  ((count++))
+  # sample name = filename without the trimmed suffix
+  fname=$(basename "$FASTQ")
+  sample=${fname%-trimmed.fastq.gz}
+  if [[ "$sample" == "$fname" ]]; then
+    sample=${fname%_trimmed.fastq.gz}
+  fi
 
-for FASTQ in "$DATA_DIR"/*-trimmed.fastq.gz; do
-CURRENT=$((CURRENT + 1))
-SAMPLE=$(basename "$FASTQ" -trimmed.fastq.gz)
-OUTDIR="$RESULTS_DIR/$SAMPLE"
-echo "Processing $SAMPLE ($CURRENT/$TOTAL_FILES)"
+  OUTDIR="$RESULTS_DIR/$sample"
+  mkdir -p "$OUTDIR"
 
-mkdir -p "$OUTDIR"
-
-echo "Quantifying $SAMPLE"
-kallisto quant \
--i "$REF_DIR/mouse_transcriptome.idx" \
--o "$OUTDIR" \
--t "$THREADS" \
---single -l "$FRAG_LEN" -s "$FRAG_SD" \
-"$FASTQ"
-
-echo "finished quanification of $SAMPLE"
-
+  echo "[INFO] ($count/${#SE_FILES[@]}) Quantifying $sample"
+  {
+    echo "kallisto quant (single-end)"
+    echo "sample:  $sample"
+    echo "fastq:   $FASTQ"
+    echo "threads: $THREADS"
+    echo "index:   $IDX"
+    echo "fraglen: $FRAG_LEN, s.d.: $FRAG_SD"
+    date
+    kallisto quant --single \
+      -i "$IDX" \
+      -o "$OUTDIR" \
+      -t "$THREADS" \
+      -l "$FRAG_LEN" -s "$FRAG_SD" \
+      "$FASTQ"
+    date
+    echo "done $sample"
+  } &> "$LOG_DIR/${sample}.kallisto.se.log"
 done
 
-echo "Results of alignment stored in $RESULTS_DIR"
+echo "[INFO] Quantification complete. Results in: $RESULTS_DIR"
+echo "[INFO] Logs in: $LOG_DIR"
