@@ -165,25 +165,17 @@ multiqc -o qc_raw/ qc_raw/
 
 Quality reports will be available in the `qc_raw/` directory for examination.
 
-## Step 2: Adapter Detection and Removal
+## Step 2: Adapter Removal
 
-### Automated Adapter Extraction
-
-Adapter sequences are automatically extracted from FastQC reports:
-
-```bash
-./extract_adapters.sh qc_raw/*_fastqc.zip qc_raw/
-```
-
-This process generates `extracted_adapters.fa` containing identified adapter sequences.
 
 ### Read Trimming Execution
+Most trimmers detect adapters for single-end reads. 
 
 ```bash
+# Single-end trimming with fastp (auto-detect adapters)
 ./fastq_trimmer.sh \
   --in-dir fastq_files/ \
-  --out-dir fastq_trimmed/ \
-  --adapters qc_raw/extracted_adapters.fa
+  --out-dir fastq_trimmed/
 ```
 
 Trimmed reads will be written to the `fastq_trimmed/` directory.
@@ -223,7 +215,7 @@ kallisto index -i mouse_transcriptome.r115.k31.idx transcripts.fa
 
 After preparing the index, quantify your samples with the relevant index and reads.
 
-Single-End Quantification
+### Single-End Quantification
 
 Kallisto requires the fragment length mean (-l) and sd (-s) for single-end.
 
@@ -267,8 +259,8 @@ mkdir -p qc_raw
 fastqc -o qc_raw/ fastq_files/*.fastq.gz
 multiqc -o qc_raw/ qc_raw/
 
-# 3) Adapter extraction & trimming (SE)
-./extract_adapters.sh qc_raw/*_fastqc.zip qc_raw/
+# 3) Adapter trimming
+
 ./fastq_trimmer.sh \
   --in-dir fastq_files/ \
   --out-dir fastq_trimmed/ \
