@@ -22,3 +22,4 @@ echo "Downloading..."
 xargs -a "$LINKFILE" -n1 -P"$N_CORES" wget -c -P "$OUTDIR"
 
 echo "Done: FASTQs are in $OUTDIR"
+
