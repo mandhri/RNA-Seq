@@ -14,7 +14,7 @@ THREADS=16
 
 QCUT=20
 LCUT=31
-FCUT=5
+
 mkdir -p "$TRIM_DIR" "$QC_DIR"
 
 for fq in "$FASTQ_DIR"/*.fastq.gz; do
@@ -25,7 +25,6 @@ echo "Trimming $sample …"
 skewer \
 -q $QCUT \
 -l $LCUT \
--f $FCUT \
 -t $THREADS \
 -o "$TRIM_DIR/$sample" \
 "$fq"
