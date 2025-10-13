@@ -97,7 +97,6 @@ sudo apt-get install kallisto
 ```
 RNA-Seq single_end/
 ├── download_sra.sh           # ENA/SRA bulk download utility
-├── ena_ftp_links.txt        # SRR accession FTP URLs
 ├── extract_adapters.sh      # FastQC adapter extraction module
 ├── fastq_trimmer.sh         # Skewer trimming wrapper script
 ├── single_end_kallisto.sh   # Single-end Kallisto pipeline
