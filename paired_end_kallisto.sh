@@ -1,77 +1,127 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
-#Defining variables
-PROJ_DIR=/mnt/vol1/RNA-Seq/kallisto_tutorial
-REF_DIR=$PROJ_DIR/references
-DATA_DIR=$PROJ_DIR/fastq_data
-RESULTS_DIR=$PROJ_DIR/results
+# -------- config --------
+export PATH="/mnt/vol1/kallisto:$PATH"   # optional if kallisto not in PATH
+PROJ_DIR=/mnt/vol1/RNA-Seq
 
-#THREADS=8 means “use up to 8 cores at once
-#Fewer threads= jobs run more slowly (because less parallel work), but will leave more spare CPU capacity if you are on a shared server.
-#More threads= faster runtime (up to a point), but you need those cores free.
-THREADS=8
+DATA_DIR="$PROJ_DIR/trimmed"                     # folder with paired trimmed FASTQs
+RESULTS_DIR="$PROJ_DIR/kallisto_tutorial/results"
+LOG_DIR="$RESULTS_DIR/logs"
 
-mkdir -p $REF_DIR $DATA_DIR $RESULTS_DIR
+INDEX_DIR="/mnt/vol1/Mouse_model_RNA_Seq/index"  # shared index location
+IDX="$INDEX_DIR/mouse_transcriptome.k31.idx"     # use one consistent index path/name
 
-#Conditional reference build
-if [ ! -f $REF_DIR/mouse_transcriptome.idx ]; then 
-echo " Kalisto index is not available,building the index"
-cd $REF_DIR
-[ ! -f mus_musculus.cdna.all.fa.gz ] && \
-wget https://ftp.ensembl.org/pub/release-114/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz
-#keeping the original .fa.gz around for safekeeping or future re‑indexing
-gunzip -c mus_musculus.cdna.all.fa.gz \
-> mus_musculus.cdna.all.fa
-kallisto index -i mouse_transcriptome.idx mus_musculus.cdna.all.fa
+THREADS=16
+
+PAIRS_FILE="$RESULTS_DIR/filenames_pe.txt"       # two columns: R1<TAB>R2
+MISSING_REPORT="$RESULTS_DIR/missing_pairs.txt"
+SAMPLES_MANIFEST="$RESULTS_DIR/samples.txt"
+
+mkdir -p "$INDEX_DIR" "$RESULTS_DIR" "$LOG_DIR"
+
+# -------- sanity checks --------
+command -v kallisto >/dev/null 2>&1 || { echo "ERROR: kallisto not found in PATH"; exit 1; }
+[[ -d "$DATA_DIR" ]] || { echo "ERROR: DATA_DIR not found: $DATA_DIR"; exit 1; }
+
+# -------- build index once (Ensembl r115 mouse cDNA) --------
+if [[ ! -f "$IDX" ]]; then
+  echo "[INFO] Kallisto index not found. Building at: $IDX"
+  cd "$INDEX_DIR"
+  if [[ ! -f Mus_musculus.GRCm39.cdna.all.fa.gz ]]; then
+    wget -O Mus_musculus.GRCm39.cdna.all.fa.gz \
+      https://ftp.ensembl.org/pub/release-115/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz
+  fi
+  gunzip -c Mus_musculus.GRCm39.cdna.all.fa.gz > Mus_musculus.GRCm39.cdna.all.fa
+  kallisto index -i "$IDX" Mus_musculus.GRCm39.cdna.all.fa
+  echo "[INFO] Index built."
 else
-echo "Kalisto index is already existing.Skipping the build"
+  echo "[INFO] Using existing index: $IDX"
 fi
 
-#Sample data download and processing
+# -------- preflight: build pairs list & validate --------
+: > "$PAIRS_FILE"
+: > "$MISSING_REPORT"
 
-echo "Starting to download the relavant fastq file for processing and aligment"
+echo "[INFO] Scanning for paired trimmed FASTQs in: $DATA_DIR"
+shopt -s nullglob
 
-SAMPLES="SRR4000502"
-for SAMPLE in $SAMPLES; do
-echo "processing fastq sample: $SAMPLE"
-if [ ! -f $DATA_DIR/${SAMPLE}_1.fastq.gz ]; then 
-echo "fastq file $SAMPLE  DOWNLOADING"
+# Support common patterns:
+#   *_R1_trimmed.fastq.gz   ↔ *_R2_trimmed.fastq.gz
+#   *-R1_trimmed.fastq.gz   ↔ *-R2_trimmed.fastq.gz
+R1_FILES=( "$DATA_DIR"/*_R1_trimmed.fastq.gz "$DATA_DIR"/*-R1_trimmed.fastq.gz )
 
-#Single‑end SRR
-fasterq-dump --split-files --threads "$THREADS" -O "$DATA_DIR" "$SAMPLE" \
-  && gzip -f "$DATA_DIR/${SAMPLE}"_{1,2}.fastq
+if [[ ${#R1_FILES[@]} -eq 0 ]]; then
+  echo "ERROR: No R1 files found matching *_R1_trimmed.fastq.gz or *-R1_trimmed.fastq.gz in $DATA_DIR"
+  exit 1
+fi
 
+MISSING=0
+for R1 in "${R1_FILES[@]}"; do
+  fname=$(basename "$R1")
+  case "$fname" in
+    *_R1_trimmed.fastq.gz) R2="${R1/_R1_trimmed.fastq.gz/_R2_trimmed.fastq.gz}" ;;
+    *-R1_trimmed.fastq.gz) R2="${R1/-R1_trimmed.fastq.gz/-R2_trimmed.fastq.gz}" ;;
+    *) R2="";;
+  esac
 
-fi 
+  if [[ -n "$R2" && -f "$R2" ]]; then
+    printf "%s\t%s\n" "$R1" "$R2" >> "$PAIRS_FILE"
+  else
+    echo "Missing mate for: $(basename "$R1")  (expected $(basename "${R2:-UNKNOWN}"))" >> "$MISSING_REPORT"
+    MISSING=1
+  fi
 done
 
-#Quantify each sample with kallisto
+if [[ "$MISSING" -ne 0 ]]; then
+  echo "[ERROR] Pairing check failed. Missing mates detected:"
+  cat "$MISSING_REPORT"
+  echo "[HINT] Fix file names/locations, then rerun. Aborting before quantification."
+  exit 2
+fi
 
-echo "Starting quantification of samples with Kallisto"
+PAIR_COUNT=$(wc -l < "$PAIRS_FILE" | tr -d ' ')
+echo "[INFO] Pairing check OK. Found $PAIR_COUNT pairs."
+cp "$PAIRS_FILE" "$RESULTS_DIR/filenames_pe.checked.txt"
 
-for SAMPLE in $SAMPLES; do
-echo "Quantifying the sample: $SAMPLE"
+# -------- quantify all pairs (basic options) --------
+: > "$SAMPLES_MANIFEST"
+echo "[INFO] Starting paired-end quantification with $THREADS threads…"
 
-#Define the input fastq pathways
-R1="$DATA_DIR/${SAMPLE}_1.fastq.gz"
-R2="$DATA_DIR/${SAMPLE}_2.fastq.gz"
+while IFS=$'\t' read -r FQZ1 FQZ2; do
+  # derive sample name by stripping the R1 suffix
+  base=$(basename "$FQZ1")
+  sample=${base%_R1_trimmed.fastq.gz}
+  if [[ "$sample" == "$base" ]]; then
+    sample=${base%-R1_trimmed.fastq.gz}
+  fi
 
-#Output folder for these samples
+  OUTDIR="$RESULTS_DIR/$sample"
+  mkdir -p "$OUTDIR"
+  echo "$sample" >> "$SAMPLES_MANIFEST"
 
-OUTDIR="$RESULTS_DIR/$SAMPLE"
-mkdir -p "$OUTDIR"
+  echo "[INFO] $sample"
+  {
+    echo "kallisto quant (paired-end)"
+    echo "sample:  $sample"
+    echo "R1:      $FQZ1"
+    echo "R2:      $FQZ2"
+    echo "threads: $THREADS"
+    echo "index:   $IDX"
+    date
+    kallisto quant \
+      -i "$IDX" \
+      -o "$OUTDIR" \
+      -t "$THREADS" \
+      "$FQZ1" "$FQZ2"
+    date
+    echo "done $sample"
+  } &> "$LOG_DIR/${sample}.kallisto.pe.log"
 
-#which index to use(i), # where to put the results(o), how many CPU threads(t) # the two mates ($R1,$R2)
-kallisto quant \
--i "$REF_DIR/mouse_transcriptome.idx" \
--o "$OUTDIR" \
--t "$THREADS" \
-"$R1" "$R2"
+done < "$PAIRS_FILE"
 
-
-echo "finished quanification of $SAMPLE"
-
-done
-
-echo "Results of alignment stored in $RESULTS Directory folder"
+echo "[INFO] Quantification complete."
+echo "[INFO] Results in: $RESULTS_DIR"
+echo "[INFO] Logs in:    $LOG_DIR"
+echo "[INFO] Manifest:   $SAMPLES_MANIFEST"
