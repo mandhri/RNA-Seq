@@ -105,7 +105,7 @@ RNA-Seq single_end/
 └── README.md                   # Project documentation
 ```
 
-## Data Download 
+## Step 1: Data Download 
 
 ### Preparing Download Links
 
@@ -149,7 +149,7 @@ curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${ENA_STUDY}&
 This query retrieves tab-separated values containing FTP URLs for all FASTQ files associated with the study accession. The response is processed to extract individual URLs and formatted for wget compatibility.
 
 
-## Quality Assessment
+## Step 1.1: Quality Assessment
 
 ### Initial Quality Control
 
@@ -165,7 +165,7 @@ multiqc -o qc_raw/ qc_raw/
 
 Quality reports will be available in the `qc_raw/` directory for examination.
 
-## Adapter Detection and Removal
+## Step 2: Adapter Detection and Removal
 
 ### Automated Adapter Extraction
 
@@ -188,7 +188,7 @@ This process generates `extracted_adapters.fa` containing identified adapter seq
 
 Trimmed reads will be written to the `fastq_trimmed/` directory.
 
-### Post-trimming Quality Assessment
+### Stwp 2.1: Post-trimming Quality Assessment
 
 ```bash
 # Optional: Re-assess quality after trimming
@@ -196,39 +196,50 @@ fastqc -o qc_trimmed/ fastq_trimmed/*.fastq.gz
 multiqc -o qc_trimmed/ qc_trimmed/
 ```
 
-## Transcript Quantification
+## Step 3: Transcript Quantification
 
-### Reference Preparation
+### Reference Preparation (transcriptome)
 
-A Kallisto index must be prepared from the target transcriptome:
-
-```bash
-# Example: Building index from GENCODE transcriptome
-kallisto index -i ref/transcriptome.idx gencode.v43.transcripts.fa.gz
-```
-
-### Single-End Quantification
+Kallisto builds an index from a **transcriptome FASTA** (e.g., Ensembl cDNA), not from a genome FASTA.
+Use a transcriptome that matches your GTF **and release version**.  
+In this project we use **mouse (Mus musculus), GRCm39, Ensembl r115**.
 
 ```bash
-./single_end_kallisto.sh \
-  --reads fastq_trimmed/SRR1234567.fastq.gz \
-  --index ref/transcriptome.idx \
-  --out-dir kallisto_se_results/
+# Create an index once (example paths)
+PROJ_DIR=/mnt/vol1/Mouse_model_RNA_Seq
+INDEX_DIR="$PROJ_DIR/index"
+mkdir -p "$INDEX_DIR"
+cd "$INDEX_DIR"
+
+# Download Ensembl r115 mouse cDNA transcriptome
+wget -O Mus_musculus.GRCm39.cdna.all.fa.gz \
+  https://ftp.ensembl.org/pub/release-115/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz
+
+# Build Kallisto index from cDNA (default k=31)
+gunzip -c Mus_musculus.GRCm39.cdna.all.fa.gz > transcripts.fa
+kallisto index -i mouse_transcriptome.r115.k31.idx transcripts.fa
+
 ```
 
-### Paired-End Quantification
+After preparing the index, quantify your samples with the relevant index and reads.
+
+Single-End Quantification
+
+Kallisto requires the fragment length mean (-l) and sd (-s) for single-end.
 
 ```bash
-./paired_end_kallisto.sh \
-  --reads1 fastq_trimmed/SRR1234567_R1.fastq.gz \
-  --reads2 fastq_trimmed/SRR1234567_R2.fastq.gz \
-  --index ref/transcriptome.idx \
-  --out-dir kallisto_pe_results/
+kallisto quant --single \
+  -i "$INDEX_DIR/mouse_transcriptome.r115.k31.idx" \
+  -o /mnt/vol1/Mouse_model_RNA_Seq/kallisto_results/SAMPLE_ID_SE \
+  -t 16 \
+  -l 200 -s 20 \
+  /path/to/trimmed/SAMPLE_ID_trimmed.fastq.gz
 ```
 
-## Results Compilation
 
-### Manifest Generation
+## Step 4: Results Compilation
+
+### Step 4.1: Manifest Generation
 
 Final summarisation and manifest creation:
 
@@ -248,26 +259,48 @@ The output manifest (`output_manifest.tsv`) provides a comprehensive summary of 
 ### Complete Workflow Example
 
 ```bash
-# 1. Data acquisition
+# 1) Data acquisition
 bash ./download_sra.sh ena_ftp_links.txt fastq_files/
 
-# 2. Initial quality assessment
+# 2) Initial quality assessment
+mkdir -p qc_raw
 fastqc -o qc_raw/ fastq_files/*.fastq.gz
 multiqc -o qc_raw/ qc_raw/
 
-# 3. Adapter extraction and trimming
+# 3) Adapter extraction & trimming (SE)
 ./extract_adapters.sh qc_raw/*_fastqc.zip qc_raw/
-./fastq_trimmer.sh --in-dir fastq_files/ --out-dir fastq_trimmed/ --adapters qc_raw/extracted_adapters.fa
+./fastq_trimmer.sh \
+  --in-dir fastq_files/ \
+  --out-dir fastq_trimmed/ \
+  --adapters qc_raw/extracted_adapters.fa \
+  --single-end
 
-# 4. Post-trimming quality check
+# 4) Post-trimming quality check
+mkdir -p qc_trimmed
 fastqc -o qc_trimmed/ fastq_trimmed/*.fastq.gz
 multiqc -o qc_trimmed/ qc_trimmed/
 
-# 5. Quantification (example for paired-end)
-./paired_end_kallisto.sh --reads1 fastq_trimmed/*_R1.fastq.gz --reads2 fastq_trimmed/*_R2.fastq.gz --index ref/transcriptome.idx --out-dir kallisto_pe_results/
+# 5) Quantification (SINGLE-END requires -l and -s)
+READS_DIR=fastq_trimmed
+OUT_BASE=kallisto_se_results
+INDEX=index/mouse_transcriptome.r115.k31.idx
+FRAG_MEAN=200
+FRAG_SD=20
+mkdir -p "$OUT_BASE"
 
-# 6. Results compilation
-./generate_manifests.sh --qc-raw qc_raw/ --qc-trimmed qc_trimmed/ --kallisto-pe kallisto_pe_results/ --manifest final_manifest.tsv
+for FQ in "$READS_DIR"/*.fastq.gz; do
+  sample=$(basename "$FQ" .fastq.gz)
+  out="$OUT_BASE/$sample"; mkdir -p "$out"
+  kallisto quant --single -l "$FRAG_MEAN" -s "$FRAG_SD" \
+    -i "$INDEX" -o "$out" -t 16 "$FQ"
+done
+
+# 6) Results compilation
+./generate_manifests.sh \
+  --qc-raw qc_raw/ \
+  --qc-trimmed qc_trimmed/ \
+  --kallisto-se kallisto_se_results/ \
+  --manifest final_manifest.tsv
 ```
 
 ## Output Interpretation
