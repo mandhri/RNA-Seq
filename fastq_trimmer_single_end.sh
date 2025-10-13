@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
 export PATH="/mnt/vol1/FastQC:$HOME/bin:$PATH"
 export PATH="/mnt/vol1/jre11/bin:$PATH"
