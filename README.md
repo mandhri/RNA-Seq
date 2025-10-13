@@ -180,7 +180,7 @@ Most trimmers detect adapters for single-end reads.
 
 Trimmed reads will be written to the `fastq_trimmed/` directory.
 
-### Stwp 2.1: Post-trimming Quality Assessment
+### Step 2.1: Post-trimming Quality Assessment
 
 ```bash
 # Optional: Re-assess quality after trimming
