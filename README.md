@@ -95,12 +95,11 @@ sudo apt-get install kallisto
 ## Project Structure
 
 ```
-RNA-Seq/
+RNA-Seq single_end/
 ├── download_sra.sh           # ENA/SRA bulk download utility
 ├── ena_ftp_links.txt        # SRR accession FTP URLs
 ├── extract_adapters.sh      # FastQC adapter extraction module
 ├── fastq_trimmer.sh         # Skewer trimming wrapper script
-├── paired_end_kallisto.sh   # Paired-end Kallisto pipeline
 ├── single_end_kallisto.sh   # Single-end Kallisto pipeline
 ├── generate_manifests.sh    # Output summarisation and manifest builder
 ├── SraRunTable.csv         # Sample metadata and phenotype information
