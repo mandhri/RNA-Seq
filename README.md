@@ -96,13 +96,13 @@ sudo apt-get install kallisto
 
 ```
 RNA-Seq single_end/
-├── download_sra.sh           # ENA/SRA bulk download utility
-├── extract_adapters.sh      # FastQC adapter extraction module
-├── fastq_trimmer.sh         # Skewer trimming wrapper script
-├── single_end_kallisto.sh   # Single-end Kallisto pipeline
-├── generate_manifests.sh    # Output summarisation and manifest builder
-├── SraRunTable.csv         # Sample metadata and phenotype information
-└── README.md               # Project documentation
+├── download_sra.sh             # ENA/SRA bulk download utility
+├── extract_adapters.sh         # FastQC adapter extraction module
+├── fastq_trimmer_single_end.sh # Skewer trimming wrapper script
+├── single_end_kallisto.sh      # Single-end Kallisto pipeline
+├── generate_manifests.sh       # Output summarisation and manifest builder
+├── SraRunTable.csv             # Sample metadata and phenotype information
+└── README.md                   # Project documentation
 ```
 
 ## Data Download 
